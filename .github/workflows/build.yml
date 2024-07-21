@@ -1,0 +1,68 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+    branches:
+      - "**"
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Remove existing package sources
+        run: |
+          dotnet nuget remove source "Atlas-Rhythm GH Packages" || true
+          dotnet nuget remove source "ErisApps GH Packages" || true
+
+      - name: Authenticate with GitHub Packages
+        run: |
+          dotnet nuget add source --username ${{ github.actor }} --password ${{ secrets.GITHUB_TOKEN }} --name "Atlas-Rhythm GH Packages" https://nuget.pkg.github.com/Atlas-Rhythm/index.json
+          dotnet nuget add source --username ${{ github.actor }} --password ${{ secrets.GITHUB_TOKEN }} --name "ErisApps GH Packages" https://nuget.pkg.github.com/ErisApps/index.json
+
+      - name: Initialize modding environment
+        uses: beat-forge/init-beatsaber@v1
+        with:
+          manifest: ${{ github.workspace }}/source/SongCore/manifest.json
+
+      - name: Download Mod Dependencies
+        uses: Goobwabber/download-beatmods-deps@1.2
+        with:
+          manifest: ${{ github.workspace }}/source/SongCore/manifest.json
+
+      - name: Cache .NET packages
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.nuget/packages
+            ~/.local/share/NuGet/v3-cache
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore NuGet packages
+        run: nuget restore
+
+      - name: Build project
+        id: build
+        run: |
+          msbuild /p:Configuration=Release /p:BeatSaberDir=${{ github.workspace }}\Refs
+          echo "filename=${{ github.workspace }}\source\SongCore\bin\Release\net472\SongCore.dll" >> $env:GITHUB_ENV
+        env:
+          DOTNET_NOLOGO: true
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SongCore.dll
+          path: ${{ env.filename }}
+          if-no-files-found: error
